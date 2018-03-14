@@ -254,6 +254,14 @@ export const defaultConfig: Config = {
     whisker: {}
   },
 
+  errorbar: {
+    size: 40,
+    extent: 'stdev',
+    mean: {color: 'black'},
+    whisker: {},
+    centerMarkType: 'none'
+  },
+
   scale: defaultScaleConfig,
   projection: {},
   axis: {},
