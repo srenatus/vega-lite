@@ -2,6 +2,7 @@ import {isObject} from 'vega-util';
 
 import {AxisConfigMixins} from './axis';
 import {CompositeMarkConfigMixins, getAllCompositeMarks} from './compositemark';
+import {DEFAULT_CALLOUT_CONFIG} from './compositemark/callout';
 import {VL_ONLY_GUIDE_CONFIG} from './guide';
 import {defaultLegendConfig, LegendConfig} from './legend';
 import {
@@ -261,6 +262,8 @@ export const defaultConfig: Config = {
     whisker: {},
     ticks: null
   },
+
+  callout: DEFAULT_CALLOUT_CONFIG,
 
   scale: defaultScaleConfig,
   projection: {},
