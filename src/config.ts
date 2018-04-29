@@ -255,11 +255,17 @@ export const defaultConfig: Config = {
   },
 
   errorbar: {
-    size: 40,
-    extent: 'stdev',
-    mean: {color: 'black'},
-    whisker: {},
-    centerMarkType: 'none'
+    center: 'mean',
+    extent: 'stderr',
+    whisker: true,
+    point: {
+      opacity: 1,
+      filled: true,
+      size: 20
+    },
+    line: false,
+    bar: false,
+    ticks: false
   },
 
   scale: defaultScaleConfig,

@@ -1,8 +1,9 @@
+import {isBoolean} from 'vega-util';
 import {GenericMarkDef, isMarkDef, MarkConfig, VL_ONLY_MARK_CONFIG_PROPERTIES} from '../mark';
 import {NormalizedUnitSpec} from '../spec';
 
 export type PartsMixins<P extends string> = {
-  [part in P]?: MarkConfig
+  [part in P]?: boolean | MarkConfig
 };
 
 export function partLayerMixins<P extends PartsMixins<any>>(
@@ -26,7 +27,7 @@ function getMarkDefMixins<P extends PartsMixins<any>>(
   markDef: GenericMarkDef<any> & P, part: keyof P, compositeMarkConfig: P
 ) {
   const mark = markDef.type;
-  const partMarkDef: MarkConfig = markDef[part];
+  const partMarkDef: MarkConfig = isBoolean(markDef[part]) ? {} : <MarkConfig>markDef[part];
 
   const configMixins = {};
 

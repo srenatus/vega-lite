@@ -1,25 +1,6 @@
 {
+  "$ref": "#/definitions/TopLevelSpec",
   "$schema": "http://json-schema.org/draft-06/schema#",
-  "anyOf": [
-    {
-      "$ref": "#/definitions/TopLevelFacetedUnitSpec"
-    },
-    {
-      "$ref": "#/definitions/TopLevelFacetSpec"
-    },
-    {
-      "$ref": "#/definitions/TopLevelLayerSpec"
-    },
-    {
-      "$ref": "#/definitions/TopLevelRepeatSpec"
-    },
-    {
-      "$ref": "#/definitions/TopLevelVConcatSpec"
-    },
-    {
-      "$ref": "#/definitions/TopLevelHConcatSpec"
-    }
-  ],
   "definitions": {
     "Aggregate": {
       "$ref": "#/definitions/AggregateOp"
@@ -2440,45 +2421,73 @@
       ],
       "type": "string"
     },
-    "ErrorBarCenterMarkType": {
+    "ErrorBarCenter": {
       "enum": [
-        "point",
-        "circle",
-        "bar",
-        "line"
+        "mean",
+        "median"
       ],
       "type": "string"
     },
     "ErrorBarConfig": {
       "additionalProperties": false,
       "properties": {
-        "centerMarkType": {
+        "bar": {
           "anyOf": [
             {
-              "enum": [
-                "none"
-              ],
-              "type": "string"
+              "type": "boolean"
             },
             {
-              "$ref": "#/definitions/ErrorBarCenterMarkType"
+              "$ref": "#/definitions/MarkConfig"
             }
-          ],
-          "description": "The shape of the mean point. Available options include:\n- `\"none\": no center point\n- `\"point\": point.\n- `\"circle\": circle.\n- `\"square\": square. // will implement it later.\n- `\"bar\": bar.\n- `\"line\": line.\n\n__Default value:__ `\"none\"`."
+          ]
+        },
+        "center": {
+          "$ref": "#/definitions/ErrorBarCenter",
+          "description": "The center of the errorbar. Available options include:\n- `\"mean\": the mean of the data points.\n- `\"median\": the median of the data points.\n\n__Default value:__ `\"mean\"`."
         },
         "extent": {
           "$ref": "#/definitions/ErrorBarExtent",
-          "description": "The extent of the whiskers. Available options include:\n- `\"stdev\": Standard deviation.\n- `\"stderr\": Standard error.\n_ `\"ci\": Confidence interval.\n\n__Default value:__ `\"stdev\"`."
+          "description": "The extent of the whiskers. Available options include:\n- `\"ci\": Extend the whiskers to the confidence interval of the mean.\n- `\"stderr\": The size of whiskers are set to the value of standard error, extending from the center.\n- `\"stdev\": The size of whiskers are set to the value of standard deviation, extending from the center.\n- `\"iqr\": Extend the whiskers to the q1 and q3.\n\n__Default value:__ `\"stderr\"`."
         },
-        "mean": {
-          "$ref": "#/definitions/MarkConfig"
+        "line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         },
-        "size": {
-          "description": "Size of the center point of an error bar ",
-          "type": "number"
+        "point": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
+        },
+        "ticks": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         },
         "whisker": {
-          "$ref": "#/definitions/MarkConfig"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         }
       },
       "type": "object"
@@ -2486,41 +2495,71 @@
     "ErrorBarDef": {
       "additionalProperties": false,
       "properties": {
-        "centerMarkType": {
+        "bar": {
           "anyOf": [
             {
-              "enum": [
-                "none"
-              ],
-              "type": "string"
+              "type": "boolean"
             },
             {
-              "$ref": "#/definitions/ErrorBarCenterMarkType"
+              "$ref": "#/definitions/MarkConfig"
             }
-          ],
-          "description": "The shape of the mean point. Available options include:\n- `\"none\": no center point\n- `\"point\": point.\n- `\"circle\": circle.\n- `\"square\": square. // will implement it later.\n- `\"bar\": bar.\n- `\"line\": line.\n\n__Default value:__ `\"none\"`."
+          ]
+        },
+        "center": {
+          "$ref": "#/definitions/ErrorBarCenter",
+          "description": "The center of the errorbar. Available options include:\n- `\"mean\": the mean of the data points.\n- `\"median\": the median of the data points.\n\n__Default value:__ `\"mean\"`."
         },
         "extent": {
           "$ref": "#/definitions/ErrorBarExtent",
-          "description": "The extent of the whiskers. Available options include:\n- `\"stdev\": Standard deviation.\n- `\"stderr\": Standard error.\n_ `\"ci\": Confidence interval.\n\n__Default value:__ `\"stdev\"`."
+          "description": "The extent of the whiskers. Available options include:\n- `\"ci\": Extend the whiskers to the confidence interval of the mean.\n- `\"stderr\": The size of whiskers are set to the value of standard error, extending from the center.\n- `\"stdev\": The size of whiskers are set to the value of standard deviation, extending from the center.\n- `\"iqr\": Extend the whiskers to the q1 and q3.\n\n__Default value:__ `\"stderr\"`."
         },
-        "mean": {
-          "$ref": "#/definitions/MarkConfig"
+        "line": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         },
         "orient": {
           "$ref": "#/definitions/Orient",
           "description": "Orientation of the error bar.  This is normally automatically determined, but can be specified when the orientation is ambiguous and cannot be automatically determined."
         },
-        "size": {
-          "description": "Size of the center point of an error bar ",
-          "type": "number"
+        "point": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
+        },
+        "ticks": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         },
         "type": {
           "$ref": "#/definitions/ErrorBar",
           "description": "The mark type. This could a primitive mark type\n(one of `\"bar\"`, `\"circle\"`, `\"square\"`, `\"tick\"`, `\"line\"`,\n`\"area\"`, `\"point\"`, `\"geoshape\"`, `\"rule\"`, and `\"text\"`)\nor a composite mark type (e.g., \"boxplot\")."
         },
         "whisker": {
-          "$ref": "#/definitions/MarkConfig"
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/definitions/MarkConfig"
+            }
+          ]
         }
       },
       "required": [
@@ -2531,6 +2570,7 @@
     "ErrorBarExtent": {
       "enum": [
         "ci",
+        "iqr",
         "stderr",
         "stdev"
       ],
@@ -7562,6 +7602,28 @@
         "mark"
       ],
       "type": "object"
+    },
+    "TopLevelSpec": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/TopLevelFacetedUnitSpec"
+        },
+        {
+          "$ref": "#/definitions/TopLevelFacetSpec"
+        },
+        {
+          "$ref": "#/definitions/TopLevelLayerSpec"
+        },
+        {
+          "$ref": "#/definitions/TopLevelRepeatSpec"
+        },
+        {
+          "$ref": "#/definitions/TopLevelVConcatSpec"
+        },
+        {
+          "$ref": "#/definitions/TopLevelHConcatSpec"
+        }
+      ]
     },
     "TopoDataFormat": {
       "additionalProperties": false,

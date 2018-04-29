@@ -1,29 +1,59 @@
-import {isNumber} from 'vega-util';
+import {isBoolean, isNumber} from 'vega-util';
 import {isAggregateOp} from '../aggregate';
+import {binToString} from '../bin';
 import {Channel} from '../channel';
 import {Config} from '../config';
 import {reduce} from '../encoding';
-import {GenericMarkDef, isMarkDef, MarkConfig} from '../mark';
-import {AggregatedFieldDef, BinTransform, CalculateTransform, TimeUnitTransform, Transform} from '../transform';
+import {GenericMarkDef, isMarkDef, Mark, MarkConfig, MarkDef, MarkProperties} from '../mark';
+import {AggregatedFieldDef, BinTransform, CalculateTransform, TimeUnitTransform} from '../transform';
 import {Flag, keys} from '../util';
 import {Encoding, forEach} from './../encoding';
-import {Field, FieldDef, isContinuous, isFieldDef, PositionFieldDef, RepeatRef, vgField} from './../fielddef';
+import {Field, FieldDef, isContinuous, isFieldDef, PositionFieldDef, vgField} from './../fielddef';
 import * as log from './../log';
-import {GenericLayerSpec, GenericUnitSpec, NormalizedLayerSpec, NormalizedUnitSpec} from './../spec';
+import {GenericUnitSpec, NormalizedLayerSpec, NormalizedUnitSpec} from './../spec';
 import {Orient} from './../vega.schema';
-import {getMarkDefMixins} from './common';
-
+import {partLayerMixins} from './common';
 
 export const ERRORBAR: 'errorbar' = 'errorbar';
 export type ErrorBar = typeof ERRORBAR;
 
-export type ErrorBarExtent = 'ci' | 'stderr' | 'stdev';
-export type ErrorBarCenterMarkType = 'point' | 'circle' | 'bar' | 'line';
+export type ErrorBarExtent = 'ci' | 'iqr' | 'stderr' | 'stdev';
+export type ErrorBarCenter = 'mean' | 'median';
+export type ErrorBarSinglePointPart = 'bar' | 'line' | 'point' | 'ticks';
 
-export type ErrorBarPart = 'mean' | 'whisker';
+const ERROR_BAR_SINGLE_POINT_PART_INDEX: Flag<ErrorBarSinglePointPart> = {
+  bar: 1,
+  line: 1,
+  point: 1,
+  ticks: 1
+};
+
+export function isErrorBarSinglePointPart(a: string): a is ErrorBarSinglePointPart {
+  return !!ERROR_BAR_SINGLE_POINT_PART_INDEX[a];
+}
+
+export type ErrorBarPart = ErrorBarSinglePointPart | 'whisker';
+
+const markNameOfErrorBarPart: { [key: string]: Mark; }= {
+  bar: 'bar',
+  line: 'line',
+  point: 'point',
+  ticks: 'tick',
+  whisker: 'rule'
+};
+
+export function getMarkNameOfErrorBarPart(key: ErrorBarPart): Mark {
+  if (!markNameOfErrorBarPart[key]) {
+    log.warn(`wrong ErrorBarPart is used (${key} is entered)`);
+  }
+  return (markNameOfErrorBarPart[key]) ? markNameOfErrorBarPart[key] : 'point';
+}
 
 const ERRORBAR_PART_INDEX: Flag<ErrorBarPart> = {
-  mean: 1,
+  bar: 1,
+  line: 1,
+  point: 1,
+  ticks: 1,
   whisker: 1
 };
 
@@ -32,36 +62,33 @@ export const ERRORBAR_PARTS = keys(ERRORBAR_PART_INDEX);
 // TODO: Currently can't use `PartsMixins<ErrorBarPart>`
 // as the schema generator will fail
 export type ErrorBarPartsMixins = {
-  [part in ErrorBarPart]?: MarkConfig
+  [part in ErrorBarPart]?: boolean | MarkConfig
 };
 
 export interface ErrorBarConfig extends ErrorBarPartsMixins {
-  /** Size of the center point of an error bar */
-  size?: number;
 
   /**
    * The extent of the whiskers. Available options include:
-   * - `"stdev": Standard deviation.
-   * - `"stderr": Standard error.
-   * _ `"ci": Confidence interval.
+   * - `"ci": Extend the whiskers to the confidence interval of the mean.
+   * - `"stderr": The size of whiskers are set to the value of standard error, extending from the center.
+   * - `"stdev": The size of whiskers are set to the value of standard deviation, extending from the center.
+   * - `"iqr": Extend the whiskers to the q1 and q3.
    *
-   * __Default value:__ `"stdev"`.
+   * __Default value:__ `"stderr"`.
    */
   extent?: ErrorBarExtent;
 
   /**
-   * The shape of the mean point. Available options include:
-   * - `"none": no center point
-   * - `"point": point.
-   * - `"circle": circle.
-   * - `"square": square. // will implement it later.
-   * - `"bar": bar.
-   * - `"line": line.
+   * The center of the errorbar. Available options include:
+   * - `"mean": the mean of the data points.
+   * - `"median": the median of the data points.
    *
-   * __Default value:__ `"none"`.
+   * __Default value:__ `"mean"`.
    */
-  centerMarkType?: 'none' | ErrorBarCenterMarkType;
+
+  center?: ErrorBarCenter;
 }
+
 export interface ErrorBarDef extends GenericMarkDef<ErrorBar>, ErrorBarConfig {
   /**
    * Orientation of the error bar.  This is normally automatically determined, but can be specified when the orientation is ambiguous and cannot be automatically determined.
@@ -92,199 +119,93 @@ export function filterUnsupportedChannels(spec: GenericUnitSpec<Encoding<string>
   };
 }
 
-function isOrient(orient: Orient | 'both'): orient is Orient {
-  return orient !== 'both';
-}
-
-function hasCenterMark(centerMarkType: ErrorBarCenterMarkType | 'none'): centerMarkType is ErrorBarCenterMarkType {
-  return centerMarkType !== 'none';
-}
-
 export function normalizeErrorBar(spec: GenericUnitSpec<Encoding<string>, ErrorBar | ErrorBarDef>, config: Config): NormalizedLayerSpec {
   spec = filterUnsupportedChannels(spec);
   // TODO: use selection
   const {mark, encoding, selection, projection: _p, ...outerSpec} = spec;
   const markDef: ErrorBarDef = isMarkDef(mark) ? mark : {type: mark};
 
-  const extent = markDef.extent || config.errorbar.extent;
-  const sizeValue = markDef.size || config.errorbar.size;
-  const centerMarkType = markDef.centerMarkType || config.errorbar.centerMarkType;
+  const center: ErrorBarCenter = markDef.center || config.errorbar.center;
+  let extent: ErrorBarExtent = markDef.extent || config.errorbar.extent;
 
-  let transform: Transform[] = [];
-  let whiskersLayer: NormalizedUnitSpec[] = [];
-  let meanLayer: NormalizedUnitSpec[] = [];
-  const centerMarkFill = centerMarkType !== 'circle' && centerMarkType !== 'line';
+  if (center === 'median') {
+    extent = markDef.extent || 'iqr';
+  }
 
-  const pseudoOrient: Orient | 'both' = errorBarOrient(spec);
+  // add warning check in the test in this format.
+  // it('warn if size is data driven and autosize is fit', log.wrap((localLogger) => {
+  //   const spec = compile({
+  //     "data": {"values": [{"a": "A","b": 28}]},
+  //     "mark": "bar",
+  //     "autosize": "fit",
+  //     "encoding": {
+  //       "x": {"field": "a", "type": "ordinal"},
+  //       "y": {"field": "b", "type": "quantitative"}
+  //     }
+  //   }).spec;
+  //   assert.equal(localLogger.warns[0], log.message.CANNOT_FIX_RANGE_STEP_WITH_FIT);
+  //   assert.equal(spec.width, 200);
+  //   assert.equal(spec.height, 200);
+  // }));
+  if ((center === 'median') !== (extent === 'iqr')) {
+    log.warn(`${center} is not usually used with ${extent} for error bar.`);
+  }
 
-  if (isOrient(pseudoOrient)) {
-    const orient: Orient = pseudoOrient;
-    const {transform: transformTmp, continuousAxisChannelDef, continuousAxis, encodingWithoutContinuousAxis} = errorBarParams(spec, orient, extent, []);
-    transform = transformTmp;
+  const orient: Orient = errorBarOrient(spec);
+  const {transform, continuousAxisChannelDef, continuousAxis, groupby, encodingWithoutContinuousAxis} = errorBarParams(spec, orient, center, extent);
 
-    const {color, size, ...encodingWithoutSizeColorAndContinuousAxis} = encodingWithoutContinuousAxis;
+  const {color, size, ...encodingWithoutSizeColorAndContinuousAxis} = encodingWithoutContinuousAxis;
 
-    const continuousAxisScaleAndAxis = {};
-    if (continuousAxisChannelDef.scale) {
-      continuousAxisScaleAndAxis['scale'] = continuousAxisChannelDef.scale;
-    }
-    if (continuousAxisChannelDef.axis) {
-      continuousAxisScaleAndAxis['axis'] = continuousAxisChannelDef.axis;
-    }
+  const {scale, axis} = continuousAxisChannelDef;
 
-    whiskersLayer = [{ // whisker
-      mark: {
-        type: 'rule',
-        ...getMarkDefMixins<ErrorBarPartsMixins>(markDef, 'whisker', config.errorbar)
-      },
-      encoding: {
-        [continuousAxis]: {
-          field: 'lower_whisker_' + continuousAxisChannelDef.field,
-          type: continuousAxisChannelDef.type,
-          ...continuousAxisScaleAndAxis
-        },
-        [continuousAxis + '2']: {
-          field: 'upper_whisker_' + continuousAxisChannelDef.field,
-          type: continuousAxisChannelDef.type
-        },
-        ...encodingWithoutSizeColorAndContinuousAxis
-      }
-    }];
+  const errorBarSinglePointPartMarksSpec = function(partName: ErrorBarPart, fieldPrefix: string = center) {
+    const markProperties: boolean | object = config.errorbar[partName];
+    const defaultMarkDef: Mark | MarkDef = (isBoolean(markProperties)) ? getMarkNameOfErrorBarPart(partName) : {
+      type: getMarkNameOfErrorBarPart(partName),
+      ...markProperties
+    };
 
-    if (hasCenterMark(centerMarkType)) {
-      meanLayer = [{ // mean point
-        mark: {
-          type: centerMarkType,
-          filled: centerMarkFill,
-          opacity: 1,
-          ...(sizeValue ? {size: sizeValue} : {}),
-          ...getMarkDefMixins<ErrorBarPartsMixins>(markDef, 'mean', config.errorbar)
-        },
+    const isSinglePoint: boolean = isErrorBarSinglePointPart(partName);
+
+    return partLayerMixins<ErrorBarPartsMixins>(
+      markDef, partName, config.errorbar,
+      {
+        mark: defaultMarkDef,
         encoding: {
           [continuousAxis]: {
-            field: 'mean_point_' + continuousAxisChannelDef.field,
-            type: continuousAxisChannelDef.type
+            field: (isSinglePoint ? fieldPrefix : 'lower_whisker') + '_' + continuousAxisChannelDef.field,
+            type: continuousAxisChannelDef.type,
+            ...(scale ? {scale} : {}),
+            ...(axis ? {axis} : {})
           },
-          ...encodingWithoutContinuousAxis,
-          // ...(size ? {size} : {})
+          ...(isSinglePoint ? {} : {
+            [continuousAxis + '2']: {
+              field: 'upper_whisker_' + continuousAxisChannelDef.field,
+              type: continuousAxisChannelDef.type
+            }
+          }),
+          ...encodingWithoutSizeColorAndContinuousAxis
         }
-      }];
-    }
-  } else {
-    const {transform: yTransform, continuousAxisChannelDef: yChannelDef, encodingWithoutContinuousAxis: encodingWithoutY, aggregate, transformWithoutAggregate: yTransformWithoutAggregate} = errorBarParams(spec, 'vertical', extent, []);
-    const {transform: xTransform, continuousAxisChannelDef: xChannelDef, encodingWithoutContinuousAxis: encodingWithoutX} = errorBarParams(spec, 'horizontal', extent, aggregate);
-
-    transform = xTransform.concat(yTransformWithoutAggregate);
-
-    const {x, ...encodingWithoutAxes} = encodingWithoutY;
-    const {color, size, ...encodingWithoutSizeColorAndAxes} = encodingWithoutAxes;
-
-    const xScaleAndAxis = {};
-    if (xChannelDef.scale) {
-      xScaleAndAxis['scale'] = xChannelDef.scale;
-    }
-    if (xChannelDef.axis) {
-      xScaleAndAxis['axis'] = xChannelDef.axis;
-    }
-
-    const yScaleAndAxis = {};
-    if (yChannelDef.scale) {
-      yScaleAndAxis['scale'] = yChannelDef.scale;
-    }
-    if (yChannelDef.axis) {
-      yScaleAndAxis['axis'] = yChannelDef.axis;
-    }
-
-    whiskersLayer = [
-      { // horizontal whisker
-        mark: {
-          type: 'rule',
-          ...getMarkDefMixins<ErrorBarPartsMixins>(markDef, 'whisker', config.errorbar)
-        },
-        encoding: {
-          x: {
-            field: 'lower_whisker_' + xChannelDef.field,
-            type: xChannelDef.type,
-            ...xScaleAndAxis
-          },
-          x2: {
-            field: 'upper_whisker_' + xChannelDef.field,
-            type: xChannelDef.type
-          },
-          y: {
-            field: 'mean_point_' + yChannelDef.field,
-            type: yChannelDef.type,
-            // ...yScaleAndAxis
-          },
-          ...encodingWithoutSizeColorAndAxes
-        }
-      }, { // vertical whisker
-        mark: {
-          type: 'rule',
-          ...getMarkDefMixins<ErrorBarPartsMixins>(markDef, 'whisker', config.errorbar)
-        },
-        encoding: {
-          y: {
-            field: 'lower_whisker_' + yChannelDef.field,
-            type: yChannelDef.type,
-            ...yScaleAndAxis
-          },
-          y2: {
-            field: 'upper_whisker_' + yChannelDef.field,
-            type: yChannelDef.type
-          },
-          x: {
-            field: 'mean_point_' + xChannelDef.field,
-            type: xChannelDef.type,
-            // ...xScaleAndAxis
-          },
-          ...encodingWithoutSizeColorAndAxes
-        }
-      }
-    ];
-
-    if (hasCenterMark(centerMarkType)) {
-      meanLayer = [{ // mean point
-        mark: {
-          type: centerMarkType,
-          filled: centerMarkFill,
-          opacity: 1,
-          ...(sizeValue ? {size: sizeValue} : {}),
-          ...getMarkDefMixins<ErrorBarPartsMixins>(markDef, 'mean', config.errorbar)
-        },
-        encoding: {
-          x: {
-            field: 'mean_point_' + xChannelDef.field,
-            type: xChannelDef.type,
-            // ...xScaleAndAxis
-          },
-          y: {
-            field: 'mean_point_' + yChannelDef.field,
-            type: yChannelDef.type,
-            // ...yScaleAndAxis
-          },
-          ...encodingWithoutAxes,
-          // ...(size ? {size} : {})
-        }
-      }];
-    }
-  }
-
-  let layer: NormalizedUnitSpec[] = [];
-  if (centerMarkType === 'line' || centerMarkType === 'bar') {
-    layer = meanLayer.concat(whiskersLayer);
-  } else {
-    layer = whiskersLayer.concat(meanLayer);
-  }
+      },
+      !!markProperties
+    );
+  };
 
   return {
     ...outerSpec,
     transform,
-    layer
+    layer: [
+      ...errorBarSinglePointPartMarksSpec('bar'),
+      ...errorBarSinglePointPartMarksSpec('line'),
+      ...errorBarSinglePointPartMarksSpec('ticks', 'lower_whisker'),
+      ...errorBarSinglePointPartMarksSpec('ticks', 'upper_whisker'),
+      ...errorBarSinglePointPartMarksSpec('whisker'),
+      ...errorBarSinglePointPartMarksSpec('point')
+    ]
   };
 }
 
-function errorBarOrient(spec: GenericUnitSpec<Encoding<Field>, ErrorBar | ErrorBarDef>): Orient | 'both' {
+function errorBarOrient(spec: GenericUnitSpec<Encoding<Field>, ErrorBar | ErrorBarDef>): Orient {
   const {mark: mark, encoding: encoding, projection: _p, ..._outerSpec} = spec;
 
   if (isFieldDef(encoding.x) && isContinuous(encoding.x)) {
@@ -296,7 +217,7 @@ function errorBarOrient(spec: GenericUnitSpec<Encoding<Field>, ErrorBar | ErrorB
       } else if (encoding.y.aggregate === undefined && encoding.x.aggregate === ERRORBAR) {
         return 'horizontal';
       } else if (encoding.x.aggregate === ERRORBAR && encoding.y.aggregate === ERRORBAR) {
-        return 'both';
+        throw new Error('Both x and y cannot have aggregate');
       } else {
         if (isMarkDef(mark) && mark.orient) {
           return mark.orient;
@@ -347,52 +268,67 @@ function errorBarContinousAxis(spec: GenericUnitSpec<Encoding<string>, ErrorBar 
   };
 }
 
-function isCi(extent: ErrorBarExtent): extent is 'ci' {
+function isExtentCI(extent: ErrorBarExtent): extent is 'ci' {
   return extent === 'ci';
 }
 
-function errorBarParams(spec: GenericUnitSpec<Encoding<string>, ErrorBar | ErrorBarDef>, orient: Orient, extent: ErrorBarExtent, aggregate: AggregatedFieldDef[]) {
+function isExtentIqr(extent: ErrorBarExtent): extent is 'iqr' {
+  return extent === 'iqr';
+}
+
+function errorBarSpecialExtents(extent: 'ci' | 'iqr', fieldName: string): AggregatedFieldDef[] {
+  return [
+    {
+      op: (extent === 'ci') ? 'ci0' : 'q1',
+      field: fieldName,
+      as: 'lower_whisker_' + fieldName
+    },
+    {
+      op: (extent === 'ci') ? 'ci1' : 'q3',
+      field: fieldName,
+      as: 'upper_whisker_' + fieldName
+    }
+  ];
+}
+
+function errorBarParams(spec: GenericUnitSpec<Encoding<string>, ErrorBar | ErrorBarDef>, orient: Orient, center: ErrorBarCenter, extent: ErrorBarExtent) {
 
   const {continuousAxisChannelDef, continuousAxis} = errorBarContinousAxis(spec, orient);
   const encoding = spec.encoding;
 
-  aggregate.push({
-    op: 'mean',
-    field: continuousAxisChannelDef.field,
-    as: 'mean_point_' + continuousAxisChannelDef.field
-  });
+  const continuousFieldName: string = continuousAxisChannelDef.field;
+
+  let aggregate: AggregatedFieldDef[] = [
+    {
+      op: center,
+      field: continuousFieldName,
+      as: center + '_' + continuousFieldName
+    }
+  ];
 
   let postAggregateCalculates: CalculateTransform[] = [];
 
-  if (isCi(extent)) {
-    aggregate.push({
-      op: 'ci0',
-      field: continuousAxisChannelDef.field,
-      as: 'lower_whisker_' + continuousAxisChannelDef.field
-    });
-    aggregate.push({
-      op: 'ci1',
-      field: continuousAxisChannelDef.field,
-      as:  'upper_whisker_' + continuousAxisChannelDef.field
-    });
+  if (isExtentCI(extent)) {
+    aggregate = aggregate.concat(errorBarSpecialExtents('ci', continuousFieldName));
+  } else if (isExtentIqr(extent)) {
+    aggregate = aggregate.concat(errorBarSpecialExtents('iqr', continuousFieldName));
   } else {
     aggregate.push({
       op: extent,
-      field: continuousAxisChannelDef.field,
-      as: 'extent_' + continuousAxisChannelDef.field
+      field: continuousFieldName,
+      as: 'extent_' + continuousFieldName
     });
 
-    postAggregateCalculates = [
-      {
-        calculate: `datum.mean_point_${continuousAxisChannelDef.field} + datum.extent_${continuousAxisChannelDef.field}`,
-        as: 'upper_whisker_' + continuousAxisChannelDef.field
+    postAggregateCalculates = [{
+        calculate: `datum.${center}_${continuousFieldName} + datum.extent_${continuousFieldName}`,
+        as: 'upper_whisker_' + continuousFieldName
       },
       {
-        calculate: `datum.mean_point_${continuousAxisChannelDef.field} - datum.extent_${continuousAxisChannelDef.field}`,
-        as: 'lower_whisker_' + continuousAxisChannelDef.field
-      }
-    ];
+        calculate: `datum.${center}_${continuousFieldName} - datum.extent_${continuousFieldName}`,
+        as: 'lower_whisker_' + continuousFieldName
+    }];
   }
+
 
   const groupby: string[] = [];
   const bins: BinTransform[] = [];
@@ -444,14 +380,9 @@ function errorBarParams(spec: GenericUnitSpec<Encoding<string>, ErrorBar | Error
       [{aggregate, groupby}],
       postAggregateCalculates
     ),
+    groupby,
     continuousAxisChannelDef,
     continuousAxis,
-    encodingWithoutContinuousAxis,
-    aggregate,
-    transformWithoutAggregate: [].concat(
-      bins,
-      timeUnits,
-      postAggregateCalculates
-    )
+    encodingWithoutContinuousAxis
   };
 }
