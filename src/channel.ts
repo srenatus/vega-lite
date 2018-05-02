@@ -45,6 +45,8 @@ export namespace Channel {
 
   export const TOOLTIP: 'tooltip' = 'tooltip';
   export const HREF: 'href' = 'href';
+
+  export const STROKEDASH: 'strokeDash' = 'strokeDash';
 }
 
 export type Channel = keyof Encoding<any> | keyof FacetMapping<any>;
@@ -74,6 +76,7 @@ export const ORDER = Channel.ORDER;
 export const OPACITY = Channel.OPACITY;
 export const TOOLTIP = Channel.TOOLTIP;
 export const HREF = Channel.HREF;
+export const STROKEDASH = Channel.STROKEDASH;
 
 export type GeoPositionChannel = 'longitude' | 'latitude' | 'longitude2' | 'latitude2';
 
@@ -112,6 +115,7 @@ const UNIT_CHANNEL_INDEX: Flag<keyof Encoding<any>> = {
   key: 1,
   tooltip: 1,
   href: 1,
+  strokeDash: 1,
 };
 
 export type ColorChannel = 'color' | 'fill' | 'stroke';
@@ -152,7 +156,7 @@ export type SingleDefChannel = 'x' | 'y' | 'x2' | 'y2' |
   'row' | 'column' |
   'color' | 'fill' | 'stroke' |
   'size' | 'shape' | 'opacity' |
-  'text' | 'tooltip' | 'href' | 'key';
+  'text' | 'tooltip' | 'href' | 'key' | 'strokeDash';
 
 export function isChannel(str: string): str is Channel {
   return !!CHANNEL_INDEX[str];
@@ -232,6 +236,7 @@ export function getSupportedMark(channel: Channel): SupportedMark {
     case COLOR:
     case FILL:
     case STROKE:
+    case STROKEDASH:
 
     case DETAIL:
     case KEY:

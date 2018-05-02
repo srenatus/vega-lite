@@ -1,4 +1,4 @@
-import {COLOR, FILL, NonPositionScaleChannel, OPACITY, SHAPE, SIZE, STROKE} from '../../channel';
+import {COLOR, FILL, NonPositionScaleChannel, OPACITY, SHAPE, SIZE, STROKE, STROKEDASH} from '../../channel';
 import {isFieldDef, title as fieldDefTitle} from '../../fielddef';
 import {Legend, LEGEND_PROPERTIES, VG_LEGEND_PROPERTIES} from '../../legend';
 import {GEOJSON} from '../../type';
@@ -42,6 +42,7 @@ function getLegendDefWithScale(model: UnitModel, channel: NonPositionScaleChanne
       return model.markDef.filled ? {fill: scale} : {stroke: scale};
     case FILL:
     case STROKE:
+    case STROKEDASH:
     case SIZE:
     case SHAPE:
     case OPACITY:
